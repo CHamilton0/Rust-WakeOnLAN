@@ -24,7 +24,7 @@ fn main() {
         use windows::Win32::System::Threading::CreateMutexW;
         use windows::core::PCWSTR;
 
-        let mutex_name: Vec<u16> = "MagicPacketSingleton"
+        let mutex_name: Vec<u16> = "Rust-WakeOnLAN-Singleton"
             .encode_utf16()
             .chain(Some(0))
             .collect();

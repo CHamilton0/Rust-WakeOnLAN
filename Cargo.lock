@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "MagicPacket"
+name = "Rust-WakeOnLAN"
 version = "0.1.0"
 dependencies = [
  "dirs",

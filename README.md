@@ -1,4 +1,4 @@
-# MagicPacket
+# Rust-WakeOnLAN
 
 ```bash
 sudo apt update
