@@ -1,8 +1,9 @@
-
 #![cfg_attr(windows, windows_subsystem = "windows")]
+
 
 mod config;
 mod tray;
+mod magic;
 #[cfg(windows)]
 mod win32_dialog;
 
@@ -53,7 +54,11 @@ fn main() {
                 break;
             }
             Ok(Message::SendPacket) => {
-                println!("Send Packet");
+                let cfg = config::load_config();
+                match magic::send_magic_packet(&cfg.mac, &cfg.ip) {
+                    Ok(()) => println!("Magic packet sent to {} via {}", cfg.mac, cfg.ip),
+                    Err(e) => eprintln!("Failed to send magic packet: {e}"),
+                }
             }
             Ok(Message::ShowConfig) => {
                 #[cfg(windows)]
