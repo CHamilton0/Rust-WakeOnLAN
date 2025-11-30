@@ -3,6 +3,7 @@ name: Rust
 on:
   push:
     branches: ["master"]
+    tags: ["v*"]
   pull_request:
     branches: ["master"]
 
@@ -12,7 +13,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
       - name: Install mingw-w64
@@ -20,9 +20,9 @@ jobs:
       - name: Add x86_64 target
         run: rustup target add x86_64-pc-windows-gnu
       - name: Build
-        run: cargo build --verbose --target x86_64-pc-windows-gnu
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v5
+        run: cargo build --verbose --release --target x86_64-pc-windows-gnu
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
         with:
-          name: rust-wol-windows
-          path: target/x86_64-pc-windows-gnu/release/Rust-WakeOnLAN.exe
+          files: target/x86_64-pc-windows-gnu/release/Rust-WakeOnLAN.exe
