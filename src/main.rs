@@ -75,7 +75,7 @@ mod win32_dialog {
             };
             RegisterClassW(&wc);
 
-            let hwnd = CreateWindowExW(
+            let hwnd: Result<HWND, windows::core::Error> = CreateWindowExW(
                 Default::default(),
                 PCWSTR(class_name.as_ptr()),
                 PCWSTR(window_name.as_ptr()),
@@ -92,6 +92,28 @@ mod win32_dialog {
             let hwnd = hwnd.unwrap();
             if hwnd.0.is_null() {
                 return;
+            }
+
+            // Set window icon from resource name "exe-icon"
+            use windows::Win32::Foundation::{HINSTANCE, LPARAM, WPARAM};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                ICON_BIG, ICON_SMALL, LoadIconW, SendMessageW, WM_SETICON,
+            };
+            let icon_name = to_wide("exe-icon");
+            let h_icon = LoadIconW(Some(HINSTANCE(h_instance.0)), PCWSTR(icon_name.as_ptr()));
+            if let Ok(h_icon) = h_icon {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(ICON_BIG as usize)),
+                    Some(LPARAM(h_icon.0 as isize)),
+                );
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(ICON_SMALL as usize)),
+                    Some(LPARAM(h_icon.0 as isize)),
+                );
             }
 
             // Prefill fields with config values
@@ -225,27 +247,6 @@ mod win32_dialog {
                         Some(WPARAM(hfont.0 as usize)),
                         Some(LPARAM(1)),
                     );
-                    // Exit button
-                    let exit_btn = CreateWindowExW(
-                        Default::default(),
-                        PCWSTR(to_wide("BUTTON").as_ptr()),
-                        PCWSTR(to_wide("Exit").as_ptr()),
-                        WS_CHILD | WS_VISIBLE,
-                        210,
-                        80,
-                        60,
-                        25,
-                        Some(hwnd),
-                        Some(HMENU(2 as usize as *mut _)),
-                        None,
-                        None,
-                    );
-                    SendMessageW(
-                        exit_btn.unwrap(),
-                        WM_SETFONT,
-                        Some(WPARAM(hfont.0 as usize)),
-                        Some(LPARAM(1)),
-                    );
                 }
                 WM_COMMAND => {
                     let id = wparam.0 as u16;
@@ -271,7 +272,6 @@ mod win32_dialog {
                             PCWSTR(to_wide("Config Saved").as_ptr()),
                             MB_OK,
                         );
-                    } else if id == 2 {
                         if let Err(e) = DestroyWindow(hwnd) {
                             eprintln!("Failed to destroy window: {:?}", e);
                         }
