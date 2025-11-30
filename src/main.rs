@@ -1,10 +1,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-use std::sync::mpsc;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::io::{self, Write};
-use serde::{Deserialize, Serialize};
+use std::sync::mpsc;
 #[derive(Serialize, Deserialize, Default)]
 struct AppConfig {
     mac: String,
@@ -12,7 +11,7 @@ struct AppConfig {
 }
 
 fn config_path() -> PathBuf {
-    // Save config in the user's home directory as ".magic_packet_config.toml"
+    // Save config in the user's home directory
     let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     path.push(".magic_packet_config.toml");
     path
@@ -39,7 +38,6 @@ mod win32_dialog {
     use std::ffi::OsStr;
     use std::mem::MaybeUninit;
     use std::os::windows::ffi::OsStrExt;
-    use std::ptr::null_mut;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Foundation::*;
     use windows::Win32::Graphics::Gdi::{DEFAULT_GUI_FONT, GetStockObject};
@@ -47,17 +45,17 @@ mod win32_dialog {
     use windows::Win32::UI::WindowsAndMessaging::ES_AUTOHSCROLL;
     use windows::Win32::UI::WindowsAndMessaging::{
         BS_DEFPUSHBUTTON, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow,
-        DispatchMessageW, GetDlgItemTextW, GetMessageW, HMENU, MB_OK, MSG, MessageBoxW,
-        PostQuitMessage, RegisterClassW, SendMessageW, TranslateMessage, WINDOW_STYLE, WM_COMMAND,
-        WM_CREATE, WM_DESTROY, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE, GetDlgItem, SetWindowTextW
+        DispatchMessageW, GetDlgItem, GetDlgItemTextW, GetMessageW, HMENU, MB_OK, MSG, MessageBoxW,
+        PostQuitMessage, RegisterClassW, SendMessageW, SetWindowTextW, TranslateMessage,
+        WINDOW_STYLE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_SETFONT, WNDCLASSW, WS_BORDER,
+        WS_CHILD, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
     use windows::core::PCWSTR;
 
     const ID_MAC: i32 = 101;
     const ID_IP: i32 = 102;
 
-    use super::{AppConfig, load_config, save_config};
+    use super::{AppConfig, load_config};
     use std::cell::RefCell;
     thread_local! {
         static CONFIG: RefCell<AppConfig> = RefCell::new(load_config());
@@ -111,7 +109,7 @@ mod win32_dialog {
 
             let mut msg = MaybeUninit::<MSG>::uninit();
             while GetMessageW(msg.as_mut_ptr(), None, 0, 0).into() {
-                TranslateMessage(msg.as_ptr());
+                let _ = TranslateMessage(msg.as_ptr());
                 DispatchMessageW(msg.as_ptr());
             }
         }
@@ -207,10 +205,10 @@ mod win32_dialog {
                         Some(LPARAM(1)),
                     );
                     // OK button
-                    let ok_btn = CreateWindowExW(
+                    let apply_btn = CreateWindowExW(
                         Default::default(),
                         PCWSTR(to_wide("BUTTON").as_ptr()),
-                        PCWSTR(to_wide("OK").as_ptr()),
+                        PCWSTR(to_wide("Apply").as_ptr()),
                         WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_DEFPUSHBUTTON as u32),
                         110,
                         80,
@@ -222,16 +220,16 @@ mod win32_dialog {
                         None,
                     );
                     SendMessageW(
-                        ok_btn.unwrap(),
+                        apply_btn.unwrap(),
                         WM_SETFONT,
                         Some(WPARAM(hfont.0 as usize)),
                         Some(LPARAM(1)),
                     );
-                    // Cancel button
-                    let cancel_btn = CreateWindowExW(
+                    // Exit button
+                    let exit_btn = CreateWindowExW(
                         Default::default(),
                         PCWSTR(to_wide("BUTTON").as_ptr()),
-                        PCWSTR(to_wide("Cancel").as_ptr()),
+                        PCWSTR(to_wide("Exit").as_ptr()),
                         WS_CHILD | WS_VISIBLE,
                         210,
                         80,
@@ -243,7 +241,7 @@ mod win32_dialog {
                         None,
                     );
                     SendMessageW(
-                        cancel_btn.unwrap(),
+                        exit_btn.unwrap(),
                         WM_SETFONT,
                         Some(WPARAM(hfont.0 as usize)),
                         Some(LPARAM(1)),
@@ -261,7 +259,10 @@ mod win32_dialog {
                         let ip = String::from_utf16_lossy(&ip_buf[..ip_len as usize]);
                         // Save config
                         super::win32_dialog::CONFIG.with(|cfg| {
-                            *cfg.borrow_mut() = super::AppConfig { mac: mac.clone(), ip: ip.clone() };
+                            *cfg.borrow_mut() = super::AppConfig {
+                                mac: mac.clone(),
+                                ip: ip.clone(),
+                            };
                             super::save_config(&cfg.borrow());
                         });
                         MessageBoxW(
@@ -271,8 +272,9 @@ mod win32_dialog {
                             MB_OK,
                         );
                     } else if id == 2 {
-                        // Cancel
-                        DestroyWindow(hwnd);
+                        if let Err(e) = DestroyWindow(hwnd) {
+                            eprintln!("Failed to destroy window: {:?}", e);
+                        }
                     }
                 }
                 WM_DESTROY => {
@@ -296,6 +298,34 @@ enum Message {
 }
 
 fn main() {
+    // Ensure only one instance runs at a time
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        use windows::Win32::System::Threading::CreateMutexW;
+        use windows::core::PCWSTR;
+
+        let mutex_name: Vec<u16> = "MagicPacketSingleton"
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mutex = unsafe { CreateMutexW(None, false, PCWSTR(mutex_name.as_ptr())) };
+        let mutex = match mutex {
+            Ok(h) => h,
+            Err(_) => {
+                // Failed to create mutex, assume already running or error
+                return;
+            }
+        };
+        if mutex.is_invalid()
+            || unsafe { windows::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS
+        {
+            // Already running
+            return;
+        }
+    }
+
+    // Create system tray icon
     let mut tray = TrayItem::new("Magic Packet sender", IconSource::Resource("exe-icon")).unwrap();
 
     let (tx, rx) = mpsc::sync_channel(1);
